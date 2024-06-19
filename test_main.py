@@ -175,72 +175,51 @@ def calculate_centroid(vertex_ids):
     return centroid_x, centroid_y
 
 
-def plot_mesh(vertices: dict, edges: dict, cells: dict,
-              name: str = "0", folder: str = ".",
-              xlim: list = [], ylim: list = [],
-              mirror_y: bool = False,
-              mirror_x: bool = False) -> None:
-    """Generate a plot of the mesh. Useful for visualizing IDs of cells, edges and vertices in the system.
-
-    :param vertices: Dictionary of vertices
-    :type vertices: dict
-    :param edges: Dictionary of edges
-    :type edges: dict
-    :param cells: Dictionary of cells
-    :type cells: dict
-    :param name: Name of output plot, defaults to "0"
-    :type name: str, optional
-    :param folder: Path to folder to save the plot, defaults to "."
-    :type folder: str, optional
-    :param xlim: Array of [x_min, x_max] to "zoom" in, defaults to []
-    :type xlim: list, optional
-    :param ylim: Array of [y_min, y_max] to "zoom" in, defaults to []
-    :type ylim: list, optional
-    :param mirror_y: If True the tissue is plotted as a mirror image in the Y axis, defaults to False
-    :type mirror_y: bool, optional
-    """
-    # %matplotlib widget # use widget to plot
-
+def plot_mesh_v3(vertices, edges, cells, name="0", folder=".", xlim=[], ylim=[], zlim=[], mirror_y=False,
+                  mirror_x=False):
     fig, ax = plt.subplots(1, 1)
     if not os.path.exists(folder):
         os.makedirs(folder)
     to_save = os.path.join(folder, name)
-    for v in vertices.itertuples():  # TypeError: 'numpy.ndarray' object is not callable
-        # vertices['id'] = ids
-        # vertices['x'] = xs
-        # vertices['y'] = ys
-        plt.scatter(v.x, v.y, s=2, color="black")
-        plt.annotate(str(v.id), [v.x, v.y], fontsize=2)
 
-    for e in edges.itertuples():
-        # Fetch coordinates for the start vertex (v1)
-        # edges['id'] = ids
-        # edges['id1'] = id1
-        # edges['id2'] = id2
-        # edges['force'] = forces
-        # 应该是通过edges包含的id1和id2对应到vertices的id来获取坐标
-        v1 = vertices.loc[vertices['id'] == e.id1].iloc[0]  #iloc[0]是为了获取第一个元素
-        print(v1)
-        # Fetch coordinates for the end vertex (v2)
-        v2 = vertices.loc[vertices['id'] == e.id2].iloc[0]
-        print(v2)
+    for i, v in vertices.iterrows():
+        plt.scatter(v['x'], v['y'], s=2, color="black")
+        plt.annotate(str(v['id']), (v['x'], v['y']), fontsize=2)
 
+    # 绘制边
+    for i, e in edges.iterrows():
+        v1 = vertices[vertices['id'] == e['id1']].iloc[0]  # 通过边的id1和id2找到对应的顶点
+        v2 = vertices[vertices['id'] == e['id2']].iloc[0]
+        plt.plot([v1['x'], v2['x']], [v1['y'], v2['y']], color="black", linewidth=0.5)
+        plt.annotate(str(e['id']), [(v1['x'] + v2['x']) / 2, (v1['y'] + v2['y']) / 2], fontweight="bold", fontsize=1)
 
-        # Plotting the edge
-        plt.plot([v1.x, v2.x], [v1.y, v2.y], color="black", linewidth=0.5)
-        # Adding annotation at the midpoint of the edge
-        plt.annotate(str(e.id), [(v1.x + v2.x) / 2, (v1.y + v2.y) / 2], fontweight="bold", fontsize=1)
+    # 绘制细胞
+    for i, c in cells.iterrows():
+        # 假设 edges_list 中包含了边的 id 列表
+        cell_edges = c['edges']
+        cxs = []
+        cys = []
+        for edge_id in cell_edges:
+            if edge_id in edges['id'].values:
+                edge = edges[edges['id'] == edge_id].iloc[0]
+                v1 = vertices[vertices['id'] == edge['id1']].iloc[0]
+                v2 = vertices[vertices['id'] == edge['id2']].iloc[0]
+                if not v1.empty and not v2.empty:
+                    cxs.append(v1['x'])
+                    cys.append(v1['y'])
+                    cxs.append(v2['x'])
+                    cys.append(v2['y'])
 
-    #     cxs = [v.x for
-    for cell in cells.itertuples():
-        vertex_indices = cell.edges  # 直接获取边的顶点索引列表
-        centroid_x, centroid_y = calculate_centroid(vertex_indices)
+        else:
+                print(f"Warning: edge_id {edge_id} not found in edges['id']")
 
+        # 填充细胞的多边形区域
+        plt.fill(cxs, cys, alpha=0.25, color="gray")
 
-        # 获取顶点坐标
-        vertex_subset = vertices[vertices['id'].isin(vertex_indices)]
-        plt.fill(vertex_subset['x'], vertex_subset['y'], alpha=0.25, color="gray")
-        plt.annotate(cell.id, (centroid_x, centroid_y))
+        # 计算质心
+        cm_x = sum(cxs) / len(cxs)
+        cm_y = sum(cys) / len(cys)
+        plt.annotate(str(c['id']), (cm_x, cm_y))
 
     if len(xlim) > 0:
         plt.xlim(xlim[0], xlim[1])
@@ -253,183 +232,7 @@ def plot_mesh(vertices: dict, edges: dict, cells: dict,
 
     plt.axis("off")
     plt.show()
-
     return fig, ax
 
 
-def plot_mesh_3d(vertices, edges, cells, name="0", folder=".", xlim=[], ylim=[], zlim=[], mirror_y=False,
-                 mirror_x=False):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')  # 创建一个3D坐标
-
-    # 检查并创建保存文件夹
-    if not os.path.exists(folder):
-        os.makedirs(folder)
-    to_save = os.path.join(folder, name)
-
-    # 绘制顶点
-    for v in vertices.itertuples():
-        ax.scatter(v.x, v.y, 0, color="black", s=20)  # 假设z坐标为0
-        ax.text(v.x, v.y, 0, str(v.id), fontsize=10)
-
-    # 绘制边
-    for e in edges.itertuples():
-        v1 = vertices.loc[vertices['id'] == e.id1].iloc[0]
-        v2 = vertices.loc[vertices['id'] == e.id2].iloc[0]
-        ax.plot([v1.x, v2.x], [v1.y, v2.y], [0, 0], color="black", linewidth=0.5)  # 假设z坐标为0
-
-    # 绘制单元格
-    for cell in cells.itertuples():
-        vertex_indices = cell.edges
-        centroid_x, centroid_y = calculate_centroid(vertex_indices)
-
-        # 获取顶点坐标
-        vertex_subset = vertices[vertices['id'].isin(vertex_indices)]
-        verts = [list(zip(vertex_subset['x'], vertex_subset['y'], np.zeros(len(vertex_subset))))]
-        poly = Poly3DCollection(verts, alpha=0.5, facecolor='gray', edgecolor='black', linewidths=1)
-        ax.add_collection3d(poly)
-
-        # 在质心位置标注单元格ID
-        ax.text(centroid_x, centroid_y, 0, cell.id, fontsize=10, color='red')
-
-    # 设置图形属性
-    if xlim:
-        ax.set_xlim(xlim[0], xlim[1])
-    if ylim:
-        ax.set_ylim(ylim[0], ylim[1])
-    if zlim:
-        ax.set_zlim(zlim[0], zlim[1])
-    if mirror_y:
-        ax.invert_yaxis()
-    if mirror_x:
-        ax.invert_xaxis()
-
-    ax.set_axis_off()
-    plt.savefig(to_save)
-    plt.show()
-
-    return fig, ax
-
-
-
-
-def plot_mesh_3d_v2(vertices, edges, cells):
-    # 绘制顶点
-    scatter_vertices = go.Scatter3d(
-        x=vertices['x'],
-        y=vertices['y'],
-        z=[0] * len(vertices),  # 假设z坐标为0
-        mode='markers+text',
-        text=vertices['id'],
-        marker=dict(size=5, color='black')
-    )
-
-    # 绘制边
-    lines = []
-    for e in edges.itertuples():
-        v1 = vertices.loc[vertices['id'] == e.id1].iloc[0]
-        v2 = vertices.loc[vertices['id'] == e.id2].iloc[0]
-        line = go.Scatter3d(
-            x=[v1.x, v2.x],
-            y=[v1.y, v2.y],
-            z=[0, 0],
-            mode='lines',
-            line=dict(color='black', width=2)
-        )
-        lines.append(line)
-
-    # 绘制单元格
-    meshes = []
-    for cell in cells.itertuples():
-        vertex_indices = cell.edges
-        vertex_subset = vertices[vertices['id'].isin(vertex_indices)]
-        mesh = go.Mesh3d(
-            x=vertex_subset['x'],
-            y=vertex_subset['y'],
-            z=[0] * len(vertex_subset),
-            color='gray',
-            opacity=0.5
-        )
-        meshes.append(mesh)
-        # 计算质心并添加标签
-        centroid_x, centroid_y = calculate_centroid(vertex_indices)
-        centroid = go.Scatter3d(
-            x=[centroid_x],
-            y=[centroid_y],
-            z=[0],
-            mode='text',
-            text=[cell.id],
-            textposition='top center'
-        )
-        meshes.append(centroid)
-
-    # 创建图形
-    fig = go.Figure(data=[scatter_vertices] + lines + meshes)
-    fig.update_layout(scene=dict(
-        xaxis=dict(nticks=10, range=[-1, 3]),
-        yaxis=dict(nticks=10, range=[-1, 2]),
-        zaxis=dict(nticks=10, range=[-1, 1])
-    ))
-
-    # 显示图形
-    fig.show()
-
-
-def plot_mesh_3d_v3(vertices, edges, cells, name="0", folder=".", xlim=[], ylim=[], zlim=[], mirror_y=False, mirror_x=False):
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')  # 创建一个3D坐标
-
-    # 检查并创建保存文件夹
-    if not os.path.exists(folder):
-        os.makedirs(folder)
-    to_save = os.path.join(folder, name)
-
-    # 绘制顶点
-    for v in vertices.itertuples():
-        ax.scatter(v.x, v.y, 0, color="black", s=20)  # 假设z坐标为0
-        ax.text(v.x, v.y, 0, str(v.id), fontsize=10)
-
-    # 绘制边
-    for e in edges.itertuples():
-        v1 = vertices.loc[vertices['id'] == e.id1].iloc[0]
-        v2 = vertices.loc[vertices['id'] == e.id2].iloc[0]
-        ax.plot([v1.x, v2.x], [v1.y, v2.y], [0, 0], color="black", linewidth=0.5)
-
-    # 绘制单元格
-    for cell in cells.itertuples():
-        vertex_indices = cell.edges
-        centroid_x, centroid_y = calculate_centroid(vertex_indices)
-
-        # 获取顶点坐标
-        vertex_subset = vertices[vertices['id'].isin(vertex_indices)]
-        verts = [list(zip(vertex_subset['x'], vertex_subset['y'], np.zeros(len(vertex_subset))))]
-        poly = Poly3DCollection(verts, alpha=0.5, facecolor='gray', edgecolor='black', linewidths=1)
-        ax.add_collection3d(poly)
-
-        # 在质心位置标注单元格ID
-        ax.text(centroid_x, centroid_y, 0, cell.id, fontsize=10, color='red')
-
-    # 设置图形属性
-    if xlim:
-        ax.set_xlim(xlim[0], xlim[1])
-    if ylim:
-        ax.set_ylim(ylim[0], ylim[1])
-    if zlim:
-        ax.set_zlim(zlim[0], zlim[1])
-    if mirror_y:
-        ax.invert_yaxis()
-    if mirror_x:
-        ax.invert_xaxis()
-
-    ax.set_axis_off()
-    plt.savefig(to_save)
-    plt.show()
-
-    return fig, ax
-
-# 调用绘图函数
-
-# plot_mesh_3d(vertices, edges, cells, name="0", folder=".", xlim=[], ylim=[], mirror_y=False, mirror_x=False)  # order
-plot_mesh(vertices, edges, cells, name="0", folder=".", xlim=[], ylim=[], mirror_y=False, mirror_x=False)
-# plot_mesh_3d_v2(vertices, edges, cells)
-# plot_mesh_3d_v3(vertices, edges, cells, name="0", folder=".", xlim=[], ylim=[], mirror_y=False, mirror_x=False)
+plot_mesh_v3(vertices, edges, cells, name="0", folder=".", xlim=[], ylim=[], mirror_y=False, mirror_x=False)
