@@ -7,21 +7,12 @@ import re
 import numpy as np
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import plotly.graph_objs as go
-
-# import forsys.surface_evolver as surface_evolver
 from forsys.surface_evolver import SurfaceEvolver
 
-# How to plot 2D in 3D coordinates
-# https://stackoverflow.com/questions/36470343/how-to-plot-2d-matplotlib-graphs-in-3d-space
-# https://stackoverflow.com/questions/44881885/plotting-2d-plot-into-3d-plot-in-matplotlib
-# how to deal with faces and pressures in 3D plotting
-# what's the format and requirements of Augusto's code
-# how to improve the plotting function
 
 filepath = r"C:\Users\takeoff\Desktop\GRINDING\test_output0.dmp"  # read the file
 
-# get the vertices, edges and cells
-# def calc_index(filepath):
+# read the Surface Evolver file(.dmp here)
 with open(os.path.join(filepath), "r") as f:
     lines = [next(f) for _ in range(5)]  # 读取前五行进行检查
     print(lines)  # 打印这些行以检查是否正确读取
@@ -61,12 +52,102 @@ index_v = (ini_v, fin_v)
 index_e = (ini_e, fin_e)
 index_f = (ini_f, fin_f)
 index_p = (ini_p, fin_p)
-# print(index_v, index_e, index_f, index_p)
-# return index_v, index_e, index_f, index_p
 
-# calc_index(filepath)
+# read vertices
+# and type fields will have been populated.
+class Vertex:
+    id: int
+    x: float
+    y: float
 
-# def get_edges(filepath):
+    def __init__(self, id: int, x: float, y: float):
+        self.id = id
+        self.x = x
+        self.y = y
+        self.ownEdges = []
+        self.ownCells = []
+        self.own_big_edges = []
+
+
+    def get_coords(self) -> list:
+
+        return [self.x, self.y]
+
+    def add_cell(self, cid: int) -> bool:
+        if cid in self.ownCells:
+            return False
+        else:
+            self.ownCells.append(cid)
+            return True
+
+    def remove_cell(self, cid: int) -> list:
+        self.ownCells.remove(cid)
+        return self.ownCells
+
+    def add_edge(self, eid: int) -> bool:
+        if eid in self.ownEdges:
+            print(eid, self.ownEdges)
+            print("edge already in vertex")
+            return False
+        else:
+            self.ownEdges.append(eid)
+            return True
+
+    def remove_edge(self, eid: int) -> list:
+        self.ownEdges.remove(eid)
+        return self.ownEdges
+
+
+vertices = pd.DataFrame()
+ids = []
+xs = []
+ys = []
+
+# index_v, _, _, _ = self.get_first_last()
+
+with open(os.path.join(filepath), "r") as f:
+    lines = f.readlines()
+    for i in range(index_v[0] + 1, index_v[1]):
+        ids.append(int(re.search(r"\d+", lines[i]).group()))
+        xs.append(round(float(lines[i].split()[1]), 3))
+        ys.append(round(float(lines[i].split()[2]), 3))
+        # vals.append(float(lines[i][lines[i].find("density"):].split(" ")[1]))
+vertices['id'] = ids
+vertices['x'] = xs
+vertices['y'] = ys
+vertices_dict = {}
+for _, r in vertices.iterrows():  # r是每一行vertices的数据
+    vertices_dict[int(r.id)] = Vertex(int(r.id), float(r.x), float(r.y))
+
+
+# read edges
+class Edge:
+    def __init__(self, id: int, v1: Vertex, v2: Vertex):
+        self.id = id
+        self.v1 = v1
+        self.v2 = v2
+        self.tension = 0
+        self.gt = 0
+        self.verticesArray = [self.v1, self.v2]
+        for v in self.verticesArray:
+            v.add_edge(self.id)
+        assert self.v1.id != self.v2.id, f"Edge {self.id} with the same vertex twice"
+
+    def __post_init__(self):
+        self.verticesArray = [self.v1, self.v2]
+        for v in self.verticesArray:
+            v.add_edge(self.id)
+        assert self.v1.id != self.v2.id, f"edge {self.id} with the same vertex twice"
+
+    def __del__(self):
+        for v in self.verticesArray:
+            if self.id in v.ownEdges:
+                v.remove_edge(self.id)
+
+
+
+
+
 edges = pd.DataFrame()
 ids = []
 id1 = []
@@ -85,28 +166,15 @@ edges['id'] = ids
 edges['id1'] = id1
 edges['id2'] = id2
 edges['force'] = forces
+
+edges_dict = {}
+for _, r in edges.iterrows():
+    edges_dict[int(r.id)] = Edge(int(r.id), vertices_dict[int(r.id1)], vertices_dict[int(r.id2)])
+    edges_dict[int(r.id)].gt = round(edges.loc[edges['id'] == int(r.id)]['force'].iloc[0], 4)
 # return edges
 
-# def get_vertices(filepath):
-vertices = pd.DataFrame()
-ids = []
-xs = []
-ys = []
 
-# index_v, _, _, _ = self.get_first_last()
-
-with open(os.path.join(filepath), "r") as f:
-    lines = f.readlines()
-    for i in range(index_v[0] + 1, index_v[1]):
-        ids.append(int(re.search(r"\d+", lines[i]).group()))
-        xs.append(round(float(lines[i].split()[1]), 3))
-        ys.append(round(float(lines[i].split()[2]), 3))
-        # vals.append(float(lines[i][lines[i].find("density"):].split(" ")[1]))
-vertices['id'] = ids
-vertices['x'] = xs
-vertices['y'] = ys
-
-# def get_cells(filepath):
+# read faces(cells)
 cells = pd.DataFrame()
 ids = []
 edges_list = []  # edges 被重新定义，这里导致后面的匹配出错
@@ -118,9 +186,9 @@ pressures = {}
 with open(os.path.join(filepath), "r") as f:
     lines = f.readlines()
     for i in range(index_p[0] + 1, index_p[1]):
-        splitted = lines[i].split() # split函数默认以空格分割，返回一个列表
+        splitted = lines[i].split()  # split函数默认以空格分割，返回一个列表
         if len(splitted) > 0:
-            pressures[int(splitted[0])] = float(splitted[7]) # 读取每一行的数据的第一个和第八个数据
+            pressures[int(splitted[0])] = float(splitted[7])  # 读取每一行的数据的第一个和第八个数据
         else:
             break
 pressure_dict = pressures
@@ -154,72 +222,162 @@ cells['id'] = ids
 # print(edges_list)
 
 cells['edges'] = edges_list
-
+# print(cells['edges'])
+# cells["vertices"] = edges_list
 cells["pressures"] = pressure_dict.values()
-
-# print(cells.columns)
-
-
-print(vertices['id'])
-# frame = SurfaceEvolver(filepath)
-
-# now use plot.py to plot with vertices, edges and cells
+cells_dict = {}
 
 
-def calculate_centroid(vertex_ids):
-    # 从 vertices DataFrame 中筛选出当前单元格的顶点
-    vertex_subset = vertices[vertices['id'].isin(vertex_ids)]
-    # 计算这些顶点的x和y坐标的平均值，得到质心坐标
-    centroid_x = np.mean(vertex_subset['x'])
-    centroid_y = np.mean(vertex_subset['y'])
+def calculate_centroid(vertices):
+    if not vertices:
+        raise ValueError("Vertices list is empty")
+
+    x_coords = [vertex.x for vertex in vertices]
+    y_coords = [vertex.y for vertex in vertices]
+
+    centroid_x = sum(x_coords) / len(vertices)
+    centroid_y = sum(y_coords) / len(vertices)
+
     return centroid_x, centroid_y
 
 
-def plot_mesh_v3(vertices, edges, cells, name="0", folder=".", xlim=[], ylim=[], zlim=[], mirror_y=False,
-                  mirror_x=False):
-    fig, ax = plt.subplots(1, 1)
+class Cell:
+    def __init__(self, id: int, vertices: list, gt_pressure: float):
+        self.id = id
+        self.vertices = vertices
+        self.gt_pressure = gt_pressure
+        self.ownEdges = []
+        self.own_big_edges = []
+        self.is_border = False
+        # define center_method as dlite
+        self.center_method = "dlite"
+
+        for v in self.vertices:
+            v.add_cell(self.id)
+        # self.center_x, self.center_y = calculate_centroid(vertices=self.vertices)
+
+    # def calculate_perimeter(self):
+    #     self.perimeter = 0
+    #     for i in range(len(self.vertices)):
+    #         diffx = self.vertices[i].x - self.vertices[(i + 1) % len(self.vertices)].x
+    #         diffy = self.vertices[i].y - self.vertices[(i + 1) % len(self.vertices)].y
+    #         self.perimeter += np.sqrt(diffx ** 2 + diffy ** 2)
+    #
+    # def get_edges(self):
+    #     cell_edges = []
+    #     for vnum in range(0, len(self.vertices) - 1):
+    #         local_edges = list(set(self.vertices[vnum].ownEdges) &
+    #                            set(self.vertices[vnum + 1].ownEdges))
+    #         cell_edges.append(local_edges[0])
+    #     return cell_edges
+    #
+    # def get_vertices(self):
+    #     return self.vertices
+    #
+    # def get_perimeter(self):
+    #     return self.perimeter
+    #
+    # def is_border(self):
+    #     return self.is_border
+    #
+    # def add_edge(self, eid: int) -> bool:
+    #     if eid in self.ownEdges:
+    #         return False
+    #     else:
+    #         self.ownEdges.append(eid)
+    #         return True
+    #
+    # def remove_edge(self, eid: int) -> list:
+    #     self.ownEdges.remove(eid)
+    #     return self.ownEdges
+    #
+    # def add_big_edge(self, beid: int) -> bool:
+    #     if beid in self.own_big_edges:
+    #         return False
+    #     else:
+    #         self.own_big_edges.append(beid)
+    #         return True
+    #
+    # def remove_big_edge(self, beid: int) -> list:
+    #     self.own_big_edges.remove(beid)
+    #     return self.own_big_edges
+    #
+    # def is_border(self):
+    #     return self.is_border
+    #
+    # def calculate_neighbors(self) -> list:
+    #     current_cells = set()
+    #     for vertex in self.vertices:
+    #         [current_cells.add(cell_id) for cell_id in vertex.ownCells]
+    #     current_cells = list(current_cells)
+    #     current_cells.remove(self.id)
+
+for _, r in cells.iterrows():
+    vlist = [edges_dict[e].v1 if e > 0 else edges_dict[-e].v2 for e in r.edges]
+    gt_pressure = round(r["pressures"], 4)
+    cells_dict[int(r.id)] = Cell(int(r.id), vlist, gt_pressure=gt_pressure)
+
+
+    def get_cm(self) -> list:
+        """
+        Get the centroid of the cell
+
+        :return:[x, y] list with the centroid position
+        :rtype: list
+        """
+        return [np.mean([v.x for v in self.vertices]), np.mean([v.y for v in self.vertices])]
+
+
+def plot_mesh(vertices: dict, edges: dict, cells: dict,
+              name: str="0", folder: str=".",
+              xlim: list=[], ylim: list=[],
+              mirror_y: bool = False,
+              mirror_x: bool = False) -> None:
+    """Generate a plot of the mesh. Useful for visualizing IDs of cells, edges and vertices in the system.
+
+    :param vertices: Dictionary of vertices
+    :type vertices: dict
+    :param edges: Dictionary of edges
+    :type edges: dict
+    :param cells: Dictionary of cells
+    :type cells: dict
+    :param name: Name of output plot, defaults to "0"
+    :type name: str, optional
+    :param folder: Path to folder to save the plot, defaults to "."
+    :type folder: str, optional
+    :param xlim: Array of [x_min, x_max] to "zoom" in, defaults to []
+    :type xlim: list, optional
+    :param ylim: Array of [y_min, y_max] to "zoom" in, defaults to []
+    :type ylim: list, optional
+    :param mirror_y: If True the tissue is plotted as a mirror image in the Y axis, defaults to False
+    :type mirror_y: bool, optional
+    """
+    fig, ax = plt.subplots(1,1)
     if not os.path.exists(folder):
         os.makedirs(folder)
     to_save = os.path.join(folder, name)
+    for v in vertices.values():
+        plt.scatter(v.x, v.y, s=2, color="black")
+        plt.annotate(str(v.id), [v.x, v.y], fontsize=2)
 
-    for i, v in vertices.iterrows():
-        plt.scatter(v['x'], v['y'], s=2, color="black")
-        plt.annotate(str(v['id']), (v['x'], v['y']), fontsize=2)
+    for e in edges.values():
+        plt.plot([e.v1.x, e.v2.x], [e.v1.y, e.v2.y], color="black", linewidth=0.5)
+        # edges.values.v1.x
+        plt.annotate(str(e.id), [(e.v1.x +  e.v2.x)/2 , (e.v1.y + e.v2.y)/2],
+                     fontweight="bold", fontsize=1)  # 计算的是边的中点，将注释放在中点
+        # 注释为边的id
 
-    # 绘制边
-    for i, e in edges.iterrows():
-        v1 = vertices[vertices['id'] == e['id1']].iloc[0]  # 通过边的id1和id2找到对应的顶点
-        v2 = vertices[vertices['id'] == e['id2']].iloc[0]
-        plt.plot([v1['x'], v2['x']], [v1['y'], v2['y']], color="black", linewidth=0.5)
-        plt.annotate(str(e['id']), [(v1['x'] + v2['x']) / 2, (v1['y'] + v2['y']) / 2], fontweight="bold", fontsize=1)
+    for c in cells.values():  # 这个循环计算了每个细胞的质心，质心 = 所有顶点的坐标之和/顶点数
+        # 计算质心的坐标,不调用get_cm方法
+        cm = [np.mean([v.x for v in c.vertices]), np.mean([v.y for v in c.vertices])]
 
-    # 绘制细胞
-    for i, c in cells.iterrows():
-        # 假设 edges_list 中包含了边的 id 列表
-        cell_edges = c['edges']
-        cxs = []
-        cys = []
-        for edge_id in cell_edges:
-            if edge_id in edges['id'].values:
-                edge = edges[edges['id'] == edge_id].iloc[0]
-                v1 = vertices[vertices['id'] == edge['id1']].iloc[0]
-                v2 = vertices[vertices['id'] == edge['id2']].iloc[0]
-                if not v1.empty and not v2.empty:
-                    cxs.append(v1['x'])
-                    cys.append(v1['y'])
-                    cxs.append(v2['x'])
-                    cys.append(v2['y'])
 
-        else:
-                print(f"Warning: edge_id {edge_id} not found in edges['id']")
-
-        # 填充细胞的多边形区域
+        cxs = [v.x for v in c.vertices]  # 获取细胞顶点的x坐标，cells中包含了顶点信息
+        # cells.values.vertices.x
+        cys = [v.y for v in c.vertices]
+        # 获取细胞顶点的位置，cells中包含了顶点信息
         plt.fill(cxs, cys, alpha=0.25, color="gray")
-
-        # 计算质心
-        cm_x = sum(cxs) / len(cxs)
-        cm_y = sum(cys) / len(cys)
-        plt.annotate(str(c['id']), (cm_x, cm_y))
+        plt.annotate(str(c.id), [cm[0], cm[1]])  # 将细胞的id放在质心处
 
     if len(xlim) > 0:
         plt.xlim(xlim[0], xlim[1])
@@ -231,8 +389,7 @@ def plot_mesh_v3(vertices, edges, cells, name="0", folder=".", xlim=[], ylim=[],
         plt.gca().invert_xaxis()
 
     plt.axis("off")
-    plt.show()
     return fig, ax
 
-
-plot_mesh_v3(vertices, edges, cells, name="0", folder=".", xlim=[], ylim=[], mirror_y=False, mirror_x=False)
+plot_mesh(vertices_dict, edges_dict, cells_dict)
+plt.show()
