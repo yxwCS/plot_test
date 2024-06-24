@@ -5,6 +5,10 @@ import scipy.spatial as spatial
 from copy import deepcopy
 
 """
+The current issue is that there are still infinite regions, causing the loop not to execute. 
+The problem lies in the fact that the generated grid is not a square but a cube, leading to the existence of infinite regions.
+The generated regions contain -1, indicating infinite regions. How to remove these infinite regions, or in other words, how to allocate vertices, edges, and cells properly?
+
 lattice = sep.lattice_class.Lattice(10, 10)
 
 vertices, edges, cells = lattice.create_example_lattice()
@@ -71,7 +75,7 @@ class Lattice:
             temp_vertex_for_cell = []
             if not len(c) != 0 and -1 not in c:
                 print("存在无穷大区域")
-# 现在的问题是还存在无穷大区域，导致不会进循环
+# This loop is not executed 
             if len(c) != 0 and -1 not in c:  # 判断是否有无穷大区域
                 # add first to close the cell_vertices
                 c.append(c[0])
