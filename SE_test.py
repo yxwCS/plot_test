@@ -3,6 +3,19 @@ from dataclasses import dataclass
 import numpy as np
 import scipy.spatial as spatial
 from copy import deepcopy
+# import seapipy as sep
+import pytest
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+from mpl_toolkits.mplot3d import Axes3D
+import pyvoro
+import pytest
+# 30 June. Fe file is generated. The plot in Surface Evolver is wroking but something is wrong
+# Guess is the distance calculation in remove_infinite_regions function needs fixing
+# Does the way generating coordinates need to be fixed?
+
+
+
 
 """
 lattice = sep.lattice_class.Lattice(10, 10)
@@ -51,11 +64,118 @@ class Lattice:
                         for j in range(self.number_cells_y)
                         for i in range(self.number_cells_x)])
         # grid ??
-        return grid_values
+        unique_grid_values = [list(x) for x in set(tuple(x) for x in grid_values)]
+
+        min_seed = np.min(unique_grid_values, axis=0)
+        max_seed = np.max(unique_grid_values, axis=0)
+        limits = [[min_seed[0] - 10, max_seed[0] + 10],
+                  [min_seed[1] - 10, max_seed[1] + 10],
+                  [min_seed[2] - 10, max_seed[2] + 10]]
+
+        print("Voronoi limits:", limits)  # Debug: Print Voronoi limits
+
+        # 计算 Voronoi 图
+        voronoi = pyvoro.compute_voronoi(unique_grid_values, limits, 2)
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        rng = np.random.default_rng(11)
+
+        for vnoicell in voronoi:
+            faces = []
+            vertices = np.array(vnoicell['vertices'])
+            for face in vnoicell['faces']:
+                faces.append(vertices[np.array(face['vertices'])])
+
+            polygon = Poly3DCollection(faces, alpha=0.5,
+                                       facecolors=rng.uniform(0, 1, 3),
+                                       linewidths=0.5, edgecolors='black')
+            ax.add_collection3d(polygon)
+
+        ax.set_xlim(limits[0])
+        ax.set_ylim(limits[1])
+        ax.set_zlim(limits[2])
+        ax.set_xlabel('X Label')
+        ax.set_ylabel('Y Label')
+        ax.set_zlabel('Z Label')
+        plt.show()
+        return unique_grid_values
+
+    def plot_seeds(self, seeds):
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        seeds = np.array(seeds)
+        ax.scatter(seeds[:, 0], seeds[:, 1], seeds[:, 2], c='r', marker='o')
+        ax.set_xlabel('X Label')
+        ax.set_ylabel('Y Label')
+        ax.set_zlabel('Z Label')
+        plt.show()
 
     def generate_voronoi_tessellation(self, seed_values: list) -> object:
         self.tessellation = spatial.Voronoi(list(seed_values))
         # print("Voronoi tessellation:", self.tessellation)  # Debug: Print Voronoi tessellation
+        return self.tessellation
+
+    # 这里定义voronoi的绘制函数
+    def plot_voronoi_tessellation(self):
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        # 绘制种子点
+        seed_values = np.array(self.tessellation.points)
+        ax.scatter(seed_values[:, 0], seed_values[:, 1], seed_values[:, 2], c='r')
+        # 绘制Voronoi顶点
+        ax.scatter(self.tessellation.vertices[:, 0], self.tessellation.vertices[:, 1], self.tessellation.vertices[:, 2], c='b')
+        plt.show()
+
+    def plot_tessellation(self):
+        # self.tessellation = Voronoi(seeds)
+        rng = np.random.default_rng()
+        polygons = []
+        for ri, region in enumerate(self.tessellation.regions):
+            # only plot those polygons for which all vertices are defined
+            if np.all(np.asarray(region) >= 0) and len(region) > 0:
+                poly = []
+                for rv in self.tessellation.ridge_vertices:
+                    if np.isin(rv, region).all():
+                        poly.append(self.tessellation.vertices[rv])
+                polygons.append(poly)
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        for poly in polygons:
+            polygon = Poly3DCollection(poly, alpha=0.5,
+                                       facecolors=rng.uniform(0, 1, 3),
+                                       linewidths=0.5, edgecolors='black')
+            ax.add_collection3d(polygon)
+        ax.set_xlim([0, 1])
+        ax.set_ylim([0, 1])
+        ax.set_zlim([0, 1])
+        plt.savefig("Voronoi_3D_3.jpg", bbox_inches='tight', dpi=100)
+        plt.show()
+
+    def plot_voronoi_3d(self, seeds):
+        voronoi = pyvoro.compute_voronoi(seeds, [[0, 1], [0, 1], [0, 1]], 1)
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        rng = np.random.default_rng(11)
+
+        for vnoicell in voronoi:
+            faces = []
+            vertices = np.array(vnoicell['vertices'])
+            for face in vnoicell['faces']:
+                faces.append(vertices[np.array(face['vertices'])])
+
+            polygon = Poly3DCollection(faces, alpha=0.5,
+                                       facecolors=rng.uniform(0, 1, 3),
+                                       linewidths=0.5, edgecolors='black')
+            ax.add_collection3d(polygon)
+
+        ax.set_xlabel('X Label')
+        ax.set_ylabel('Y Label')
+        ax.set_zlabel('Z Label')
+        plt.show()
+
+    def returun_voronoi_tessellation(self):
         return self.tessellation
 
     def create_lattice_elements(self) -> tuple:
@@ -71,9 +191,7 @@ class Lattice:
         regions = deepcopy(self.tessellation.regions)
         big_edge = []
         print("regions before removing in lattice creating", regions)
-
         cnum = 1
-
         regions = self.remove_infinite_regions(regions)
         print("regions after in lattice creating", regions)
         for c in regions:
@@ -81,35 +199,50 @@ class Lattice:
             temp_vertex_for_cell = []
             if not len(c) != 0 and -1 not in c:
                 print("存在无穷大区域")
-
-
-# 现在的问题是还存在无穷大区域，导致不会进循环
+# 已解决   现在的问题是还存在无穷大区域，导致不会进循环
 # 问题出现在生成的网格不是正方形，而是立方体，导致无穷大区域的存在
 # 生成的regions中包含-1，表示无穷大区域，怎么去掉这个无穷大区域或者说怎么分配vertices，edges，cells
-
             if len(c) != 0 and -1 not in c:  # 判断是否有无穷大区域，这个循环导致进不去
                 # add first to close the cell_vertices
-                c.append(c[0])
+                if c[0] != c[-1]:
+                    c.append(c[0])  # 为了闭合顶点
                 for ii in range(0, len(c) - 1):
                     temp_big_edge = []
+
                     x_coordinate = np.around(np.linspace(round(self.tessellation.vertices[c[ii]][0], 3),
                                                          round(self.tessellation.vertices[c[ii + 1]][0], 3), 2), 3)
+
                     y_coordinate = np.around(self.line_eq(self.tessellation.vertices[c[ii]],
                                                           self.tessellation.vertices[c[ii + 1]],
                                                           x_coordinate), 3)
+
                     z_coordinate = np.around(np.linspace(round(self.tessellation.vertices[c[ii]][2], 3),
                                                          round(self.tessellation.vertices[c[ii + 1]][2], 3), 2), 3)
 
                     new_edge_vertices = list(zip(x_coordinate, y_coordinate, z_coordinate))
-                    print("new_edge_vertices in creating lattice:", new_edge_vertices)
+
+                    # v0 = self.tessellation.vertices[c[ii]]
+                    # v1 = self.tessellation.vertices[c[ii + 1]]
+                    # t_values = np.linspace(0, 1, num=2)  # 生成从 0 到 1 的均匀间隔点
+                    # new_edge_vertices = self.line_eq_v1(v0, v1, t_values)
+                    # print("new_edge_vertices in creating lattice:", new_edge_vertices)
+
+                    # pass
                     # add new edges to the global list
                     for v in range(0, len(new_edge_vertices) - 1):
                         v0 = new_edge_vertices[v]
                         v1 = new_edge_vertices[v + 1]
+                        # v0 = self.tessellation.vertices[c[ii]]
+                        # v1 = self.tessellation.vertices[c[ii + 1]]
+                        # new_edge_vertices = [v0, v1]
                         # v2 = new_edge_vertices[v + 2]
-                        vertex_number_1 = self.get_vertex_number(v0, new_vertices)
-
+                        vertex_number_1 = self.get_vertex_number(v0, new_vertices)  # 通过坐标获取顶点编号
                         vertex_number_2 = self.get_vertex_number(v1, new_vertices)
+
+
+                        # vertex_number_1 = self.get_vertex_number_v1(v0, new_vertices)  # 通过坐标获取顶点编号
+                        #
+                        # vertex_number_2 = self.get_vertex_number_v1(v1, new_vertices)
 
                         # vertex_number_3 =
 
@@ -122,7 +255,7 @@ class Lattice:
 
                     big_edge.append(temp_big_edge)
 
-                area_sign = self.get_cell_area_sign(temp_vertex_for_cell, new_vertices)
+                area_sign = self.get_cell_area_sign(temp_vertex_for_cell, new_vertices)  # 通过高斯公式计算多边形的方向
                 new_cells[-1 * cnum * area_sign] = temp_for_cell
                 # new_cells[cnum] = temp_for_cell
                 # calculate cell_vertices centroid
@@ -130,6 +263,7 @@ class Lattice:
         print("new_edges in creating lattice:", new_edges)
         print("new_vertices in creating lattice:", new_vertices)
         print("new_cells in creating lattice:", new_cells)
+
         return new_vertices, new_edges, new_cells
 
     def remove_infinite_regions(self, regions: list, max_distance: float = 50) -> list:
@@ -161,7 +295,7 @@ class Lattice:
         :return: Sign of the cell_vertices area to determine orientation of the polygon
         :rtype: int
         """
-        return int(np.sign(self.get_cell_area(cell, all_vertices)))
+        return int(np.sign(self.get_cell_area(cell, all_vertices)))  #
 
     def create_example_lattice(self, voronoi_seeds_std: float = 0.15, voronoi_seeds_step: int = 20) -> tuple:
         seed_values = self.generate_cube_seeds(standard_deviation=voronoi_seeds_std, spatial_step=voronoi_seeds_step)
@@ -189,6 +323,19 @@ class Lattice:
                 vertex_number = 1
             vertices[vertex_number] = vertex
         return vertex_number
+
+    @staticmethod
+    def get_vertex_number_v1(vertex: np.ndarray, vertices: dict) -> int:
+        for key, value in vertices.items():
+            if np.array_equal(vertex, value):
+                return key
+        if len(vertices) > 0:
+            vertex_number = max(vertices.keys()) + 1
+        else:
+            vertex_number = 1
+        vertices[vertex_number] = vertex
+        return vertex_number
+
 
     @staticmethod
     def get_enum(edge: list, edges: dict) -> int:
@@ -223,6 +370,18 @@ class Lattice:
         return p0[1] + m * (x - p0[0])
 
     @staticmethod
+    def line_eq_v1(p0, p1, x) -> list:
+        p0 = np.around(p0, 3)
+        p1 = np.around(p1, 3)
+
+        # Compute the direction vector from p0 to p1
+        direction = p1 - p0
+        if np.isclose(direction[0], 0):
+            direction[0] = 1e-9
+        # Compute the points on the line at each t
+        return p0 + x[:, np.newaxis] * direction
+
+    @staticmethod
     def get_cell_area(cell_vertices: list, vertices: dict) -> float:
         """
         Area of a polygon using the shoelace formula
@@ -233,6 +392,7 @@ class Lattice:
         """
         x = [vertices[i][0] for i in cell_vertices]
         y = [vertices[i][1] for i in cell_vertices]
+        # z =
         return 0.5 * (np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
 
 
@@ -274,6 +434,7 @@ class SurfaceEvolver:
         :return: Initialized Surface Evolver slate
         :rtype: io.StringIO()
         """
+        print(self.vertices.items())
         self.fe_file.write("SPACE_DIMENSION 3 \n")  # 修改为3D
         self.fe_file.write("SCALE 0.005 FIXED\n")
         self.fe_file.write("STRING \n")
@@ -464,22 +625,30 @@ class SurfaceEvolver:
 
 
 # 生成3D晶格
-lattice = Lattice(10, 10, 10)  # 假设网格为2x2x2
+
+# 怎么样只选择两个参数传入
+lattice = Lattice(3, 3, 3)  # 假设网格为2x2x2
+# 这里提取voronoi图，并绘制
+
+
 vertices, edges, cells = lattice.create_example_lattice()
 print("Vertices in main:", vertices)
 print("Edges in main:", edges)
 print("Cells in main:", cells)
-
-
+# lattice.plot_seeds()
+# lattice.plot_tessellation()
 
 # 为每个单元分配初始体积
 volume_values = {k: 1.0 for k, v in cells.items()}  # 假设每个单元的体积为1.0
 
 density_values = {k: 1.0 for k, v in edges.items()}  # 假设所有边的张力为1.0
 
-evolver = SurfaceEvolver(vertices, edges, cells, density_values, volume_values)
 
-fe_file = evolver.generate_fe_file()
+# 生成Surface Evolver对象
+# evolver = sep.surface_evolver.SurfaceEvolver(vertices, edges, cells, density_values, volume_values, polygonal=False)
+
+
+
 
 # 添加gogo和inner脚本
 # fe_file.write('''
@@ -487,8 +656,87 @@ fe_file = evolver.generate_fe_file()
 # inner := { show facets ff where sum(ff.body,1) == 2 }
 # ''')
 
-# 保存文件
-input_file_path = r"C:\Users\takeoff\Desktop\GRINDING\3D_testv1.fe"
 
+# 得到所有的信息，现在生成文件
+# print(fe_file.getvalue())
+
+
+# # # 保存文件
+evolver = SurfaceEvolver(vertices, edges, cells, density_values, volume_values)
+
+# 写入文件，初始松弛，然后保存文件
+evolver.generate_fe_file()
+evolver.initial_relaxing()
+input_file_path = r"C:\Users\takeoff\Desktop\GRINDING\3D_testv5.fe"
 evolver.save_fe_file(input_file_path)
 # print(fe_file.getvalue())
+
+
+# 打印voronoi图的基本信息
+voronoi = lattice.returun_voronoi_tessellation()
+
+
+def plot_voronoi_3d(voronoi):
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    # 绘制Voronoi种子点
+    ax.scatter(voronoi.points[:, 0], voronoi.points[:, 1], voronoi.points[:, 2], c='r', marker='o', label='Seeds')
+
+    # 绘制Voronoi顶点
+    ax.scatter(voronoi.vertices[:, 0], voronoi.vertices[:, 1], voronoi.vertices[:, 2], c='b', marker='^',
+               label='Vertices')
+
+    # 绘制Voronoi边
+    for simplex in voronoi.ridge_vertices:
+        simplex = np.asarray(simplex)
+        if np.all(simplex >= 0):
+            ax.plot(voronoi.vertices[simplex, 0], voronoi.vertices[simplex, 1], voronoi.vertices[simplex, 2], 'k-')
+
+    ax.set_xlabel('X Label')
+    ax.set_ylabel('Y Label')
+    ax.set_zlabel('Z Label')
+
+    plt.legend()
+    plt.show()
+
+
+#
+# lattice = Lattice(2, 2, 2)
+# vertices, edges, cells = lattice.create_example_lattice()
+# voronoi = lattice.generate_voronoi_tessellation(seed_values)
+#
+# # plot_voronoi_3d(voronoi)
+# plot_voronoi_3d(voronoi)
+
+# 使用pytest测试line_eq函数
+def test_line_eq():
+    p0 = [0, 0, 0]
+    p1 = [1, 1, 1]
+    x = np.array([0.5, 0.75])
+    y = lattice.line_eq(p0, p1, x)
+    assert np.allclose(y, [0.5, 0.75])
+
+    p0 = [0, 0, 0]
+    p1 = [0, 1, 0]
+    x = np.array([0.5, 0.75])
+    y = lattice.line_eq(p0, p1, x)
+    assert np.allclose(y, [0.5, 0.75])
+
+    p0 = [0, 0, 0]
+    p1 = [0, 0, 1]
+    x = np.array([0.5, 0.75])
+    y = lattice.line_eq(p0, p1, x)
+    assert np.allclose(y, [0.5, 0.75])
+
+    p0 = [0, 0, 0]
+    p1 = [1, 1, 1]
+    x = np.array([0.5, 0.75])
+    y = lattice.line_eq(p0, p1, x)
+    assert np.allclose(y, [0.5, 0.75])
+
+    p0 = [0, 0, 0]
+    p1 = [1, 1, 1]
+    x = np.array([0.5, 0.75])
+    y = lattice.line_eq(p0, p1, x)
+    assert np.allclose(y, [0.5, 0.75])
